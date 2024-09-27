@@ -2,8 +2,8 @@ use crate::assistant_panel::ContextEditor;
 use anyhow::Result;
 use assistant_slash_command::AfterCompletion;
 pub use assistant_slash_command::{
-    SlashCommand, SlashCommandEvent, SlashCommandOutput, SlashCommandOutputSection,
-    SlashCommandRegistry, SlashCommandResult,
+    SlashCommand, SlashCommandEvent, SlashCommandOutputSection, SlashCommandRegistry,
+    SlashCommandResult,
 };
 use editor::{CompletionProvider, Editor};
 use fuzzy::{match_strings, StringMatchCandidate};

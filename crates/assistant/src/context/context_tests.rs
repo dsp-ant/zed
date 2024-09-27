@@ -6,7 +6,7 @@ use crate::{
 };
 use anyhow::Result;
 use assistant_slash_command::{
-    ArgumentCompletion, SlashCommand, SlashCommandOutput, SlashCommandOutputSection,
+    ArgumentCompletion, SlashCommand, SlashCommandEvent, SlashCommandOutputSection,
     SlashCommandRegistry,
 };
 use collections::HashSet;

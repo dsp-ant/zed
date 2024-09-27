@@ -100,52 +100,6 @@ pub type RenderFoldPlaceholder = Arc<
         + Fn(ElementId, Arc<dyn Fn(&mut WindowContext)>, &mut WindowContext) -> AnyElement,
 >;
 
-pub struct SlashCommandOutput {
-    pub role: Option<Role>,
-    pub text: String,
-    pub sections: Vec<SlashCommandOutputSection<usize>>,
-    pub run_commands_in_text: bool,
-}
-
-impl Default for SlashCommandOutput {
-    fn default() -> Self {
-        Self {
-            role: None,
-            text: String::new(),
-            sections: Vec::new(),
-            run_commands_in_text: false,
-        }
-    }
-}
-
-impl Into<BoxStream<'static, SlashCommandEvent>> for SlashCommandOutput {
-    fn into(self) -> BoxStream<'static, SlashCommandEvent> {
-        let mut events = Vec::new();
-        events.push(SlashCommandEvent::StartMessage {
-            role: self.role.unwrap_or(Role::User),
-        });
-
-        for section in &self.sections {
-            events.push(SlashCommandEvent::StartSection {
-                icon: section.icon,
-                label: section.label.clone(),
-                metadata: section.metadata.clone(),
-            });
-        }
-
-        events.push(SlashCommandEvent::Content {
-            text: self.text,
-            run_commands_in_text: self.run_commands_in_text,
-        });
-
-        for _ in self.sections {
-            events.push(SlashCommandEvent::EndSection { metadata: None });
-        }
-
-        futures::stream::iter(events).boxed()
-    }
-}
-
 pub enum SlashCommandEvent {
     StartMessage {
         role: Role,

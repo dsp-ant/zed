@@ -1,4 +1,4 @@
-use super::{SlashCommand, SlashCommandOutput, SlashCommandOutputSection, SlashCommandResult};
+use super::{SlashCommand, SlashCommandEvent, SlashCommandOutputSection, SlashCommandResult};
 // use super::diagnostics_command::collect_buffer_diagnostics;
 use anyhow::{anyhow, Context as _, Result};
 use assistant_slash_command::{AfterCompletion, ArgumentCompletion};
