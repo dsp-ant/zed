@@ -1838,13 +1838,18 @@ impl Context {
                     metadata: Option<serde_json::Value>,
                 }
 
-                let mut position = this.update(&mut cx, |this, cx| {
+                let (position, old_cmd_range) = this.update(&mut cx, |this, cx| {
                     this.buffer.update(cx, |buffer, cx| {
                         let offset = command_range.end.to_offset(buffer);
                         buffer.edit([(offset..offset, "\n")], None, cx);
-                        buffer.anchor_after(offset + 1)
+                        (
+                            buffer.anchor_after(offset + 1),
+                            command_range.start..buffer.anchor_before(command_range.end),
+                        )
                     })
                 })?;
+                let mut finished_sections: Vec<SlashCommandOutputSection<language::Anchor>> =
+                    Vec::new();
                 let mut pending_section_stack: Vec<PendingSection> = Vec::new();
 
                 while let Some(event) = stream.next().await {
@@ -1853,7 +1858,7 @@ impl Context {
                             this.update(&mut cx, |this, cx| {
                                 let offset = this
                                     .buffer
-                                    .read_with(cx, |buffer, cx| position.to_offset(buffer));
+                                    .read_with(cx, |buffer, _cx| position.to_offset(buffer));
                                 this.insert_message_at_offset(
                                     offset,
                                     role,
@@ -1876,6 +1881,7 @@ impl Context {
                                     metadata,
                                 })
                             })?;
+                            log::info!("start section");
                         }
                         SlashCommandEvent::Content {
                             text,
@@ -1895,7 +1901,7 @@ impl Context {
                         SlashCommandEvent::EndSection { metadata } => {
                             if let Some(pending_section) = pending_section_stack.pop() {
                                 this.update(&mut cx, |this, cx| {
-                                    this.buffer.update(cx, |buffer, cx| {
+                                    this.buffer.update(cx, |buffer, _cx| {
                                         let start = pending_section.start;
                                         let end = buffer.anchor_before(position);
 
@@ -1912,11 +1918,12 @@ impl Context {
                                                 label: pending_section.label,
                                                 metadata: metadata.or(pending_section.metadata),
                                             };
+                                        finished_sections
+                                            .push(slash_command_output_section.clone());
                                         this.slash_command_output_sections
                                             .push(slash_command_output_section);
                                         this.slash_command_output_sections
                                             .sort_by(|a, b| a.range.cmp(&b.range, buffer));
-                                        // todo!("");
                                     });
                                 })?;
                             }
@@ -1927,97 +1934,36 @@ impl Context {
                 this.update(&mut cx, |this, cx| {
                     let command_id = SlashCommandId(this.next_timestamp());
                     this.finished_slash_commands.insert(command_id);
+
+                    let version = this.version.clone();
+                    let (op, ev) = this.buffer.update(cx, |buffer, cx| {
+                        let start = command_range.start;
+                        let end = buffer.anchor_before(position);
+                        let output_range = start..end;
+
+                        // Remove the command range from the buffer
+                        buffer.edit([(old_cmd_range, "")], None, cx);
+                        (
+                            ContextOperation::SlashCommandFinished {
+                                id: command_id,
+                                output_range: output_range.clone(),
+                                sections: finished_sections.clone(),
+                                version,
+                            },
+                            ContextEvent::SlashCommandFinished {
+                                output_range,
+                                sections: finished_sections,
+                                run_commands_in_output: false,
+                                expand_result,
+                            },
+                        )
+                    });
+
+                    this.push_op(op, cx);
+                    cx.emit(ev);
                 })
             }
         });
-        // this.update(&mut cx, |this, cx| match output {
-        //     Ok(mut output) => {
-        //         // Ensure section ranges are valid.
-        //         for section in &mut output.sections {
-        //             section.range.start = section.range.start.min(output.text.len());
-        //             section.range.end = section.range.end.min(output.text.len());
-        //             while !output.text.is_char_boundary(section.range.start) {
-        //                 section.range.start -= 1;
-        //             }
-        //             while !output.text.is_char_boundary(section.range.end) {
-        //                 section.range.end += 1;
-        //             }
-        //         }
-
-        //         // Ensure there is a newline after the last section.
-        //         if ensure_trailing_newline {
-        //             let has_newline_after_last_section =
-        //                 output.sections.last().map_or(false, |last_section| {
-        //                     output.text[last_section.range.end..].ends_with('\n')
-        //                 });
-        //             if !has_newline_after_last_section {
-        //                 output.text.push('\n');
-        //             }
-        //         }
-
-        //         let version = this.version.clone();
-        //         let command_id = SlashCommandId(this.next_timestamp());
-        //         let (operation, event) = this.buffer.update(cx, |buffer, cx| {
-        //             let start = command_range.start.to_offset(buffer);
-        //             let old_end = command_range.end.to_offset(buffer);
-        //             let new_end = start + output.text.len();
-        //             buffer.edit([(start..old_end, output.text)], None, cx);
-
-        //             let mut sections = output
-        //                 .sections
-        //                 .into_iter()
-        //                 .map(|section| SlashCommandOutputSection {
-        //                     range: buffer.anchor_after(start + section.range.start)
-        //                         ..buffer.anchor_before(start + section.range.end),
-        //                     icon: section.icon,
-        //                     label: section.label,
-        //                     metadata: section.metadata,
-        //                 })
-        //                 .collect::<Vec<_>>();
-        //             sections.sort_by(|a, b| a.range.cmp(&b.range, buffer));
-
-        //             this.slash_command_output_sections
-        //                 .extend(sections.iter().cloned());
-        //             this.slash_command_output_sections
-        //                 .sort_by(|a, b| a.range.cmp(&b.range, buffer));
-
-        //             let output_range =
-        //                 buffer.anchor_after(start)..buffer.anchor_before(new_end);
-        //             this.finished_slash_commands.insert(command_id);
-
-        //             (
-        //                 ContextOperation::SlashCommandFinished {
-        //                     id: command_id,
-        //                     output_range: output_range.clone(),
-        //                     sections: sections.clone(),
-        //                     version,
-        //                 },
-        //                 ContextEvent::SlashCommandFinished {
-        //                     output_range,
-        //                     sections,
-        //                     run_commands_in_output: output.run_commands_in_text,
-        //                     expand_result,
-        //                 },
-        //             )
-        //         });
-
-        //         this.push_op(operation, cx);
-        //         cx.emit(event);
-        //     }
-        //     Err(error) => {
-        //         if let Some(pending_command) =
-        //             this.pending_command_for_position(command_range.start, cx)
-        //         {
-        //             pending_command.status =
-        //                 PendingSlashCommandStatus::Error(error.to_string());
-        //             cx.emit(ContextEvent::PendingSlashCommandsUpdated {
-        //                 removed: vec![pending_command.source_range.clone()],
-        //                 updated: vec![pending_command.clone()],
-        //             });
-        //         }
-        //     }
-        // // })
-        // .ok()
 
         let insert_output_task = cx.background_executor().spawn(async move {
             if let Err(error) = insert_output_task.await {
