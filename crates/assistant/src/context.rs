@@ -1838,14 +1838,12 @@ impl Context {
                     metadata: Option<serde_json::Value>,
                 }
 
-                let (position, old_cmd_range) = this.update(&mut cx, |this, cx| {
+                let position = this.update(&mut cx, |this, cx| {
                     this.buffer.update(cx, |buffer, cx| {
-                        let offset = command_range.end.to_offset(buffer);
-                        buffer.edit([(offset..offset, "\n")], None, cx);
-                        (
-                            buffer.anchor_after(offset + 1),
-                            command_range.start..buffer.anchor_before(command_range.end),
-                        )
+                        let start = command_range.start.to_offset(buffer);
+                        let end = command_range.end.to_offset(buffer);
+                        buffer.edit([(start..end, "")], None, cx);
+                        command_range.end
                     })
                 })?;
                 let mut finished_sections: Vec<SlashCommandOutputSection<language::Anchor>> =
@@ -1881,7 +1879,6 @@ impl Context {
                                     metadata,
                                 })
                             })?;
-                            log::info!("start section");
                         }
                         SlashCommandEvent::Content {
                             text,
@@ -1891,6 +1888,11 @@ impl Context {
 
                             this.update(&mut cx, |this, cx| {
                                 this.buffer.update(cx, |buffer, cx| {
+                                    let text = if !text.ends_with('\n') {
+                                        text + "\n"
+                                    } else {
+                                        text
+                                    };
                                     buffer.edit([(position..position, text)], None, cx)
                                 })
                             })?;
@@ -1942,7 +1944,6 @@ impl Context {
                         let output_range = start..end;
 
                         // Remove the command range from the buffer
-                        buffer.edit([(old_cmd_range, "")], None, cx);
                         (
                             ContextOperation::SlashCommandFinished {
                                 id: command_id,

@@ -6,7 +6,7 @@ use futures::stream::{self, StreamExt};
 use fuzzy::PathMatch;
 use gpui::{AppContext, Model, Task, View, WeakView};
 use language::{BufferSnapshot, CodeLabel, HighlightId, LineEnding, LspAdapterDelegate};
-use project::{PathMatchCandidateSet, Project};
+use project::{Entry, PathMatchCandidateSet, Project};
 use serde::{Deserialize, Serialize};
 use std::{
     fmt::Write,
@@ -223,7 +223,9 @@ fn collect_files(
         let mut events = Vec::new();
         for snapshot in snapshots {
             let worktree_id = snapshot.id();
-            let mut top_level_directory = true;
+            let mut folded_directory_names = Vec::new();
+            let mut is_top_level_directory = true;
+            let mut directory_stack = Vec::new();
 
             for entry in snapshot.entries(false, 0) {
                 let mut path_including_worktree_name = PathBuf::new();
@@ -237,12 +239,57 @@ fn collect_files(
                     continue;
                 }
 
+                let filename = entry
+                    .path
+                    .file_name()
+                    .unwrap_or_default()
+                    .to_str()
+                    .unwrap_or_default()
+                    .to_string();
+
+                while !directory_stack.is_empty()
+                    && !entry.path.starts_with(directory_stack.last().unwrap())
+                {
+                    directory_stack.pop();
+                    events.push(SlashCommandEvent::EndSection { metadata: None });
+                }
+
                 if entry.is_dir() {
+                    let mut child_entries = snapshot.child_entries(&entry.path);
+                    if let Some(child) = child_entries.next() {
+                        if child_entries.next().is_none() && child.kind.is_dir() {
+                            if is_top_level_directory {
+                                is_top_level_directory = false;
+                                folded_directory_names.push(
+                                    path_including_worktree_name.to_string_lossy().to_string(),
+                                );
+                            } else {
+                                folded_directory_names.push(filename.to_string())
+                            }
+                        }
+                    } else {
+                        // Skip empty directories
+                        folded_directory_names.clear();
+                        continue;
+                    }
+
+                    let prefix_paths = folded_directory_names.drain(..).as_slice().join("/");
+                    let dirname = if prefix_paths.is_empty() {
+                        if is_top_level_directory {
+                            is_top_level_directory = false;
+                            path_including_worktree_name.to_string_lossy().to_string()
+                        } else {
+                            filename
+                        }
+                    } else {
+                        format!("{}/{}", prefix_paths, &filename)
+                    };
                     events.push(SlashCommandEvent::StartSection {
                         icon: IconName::Folder,
-                        label: "".into(),
+                        label: dirname.into(),
                         metadata: None,
                     });
+                    directory_stack.push(entry.path.clone());
                 } else if entry.is_file() {
                     let open_buffer_task = project_handle
                         .update(&mut cx, |project, cx| {
@@ -258,7 +305,10 @@ fn collect_files(
                             buffer_to_output(&snapshot, Some(&path_including_worktree_name))?;
                         events.push(SlashCommandEvent::StartSection {
                             icon: IconName::File,
-                            label: "".into(),
+                            label: path_including_worktree_name
+                                .to_string_lossy()
+                                .to_string()
+                                .into(),
                             metadata: None,
                         });
                         events.push(SlashCommandEvent::Content {
@@ -268,6 +318,12 @@ fn collect_files(
                         events.push(SlashCommandEvent::EndSection { metadata: None });
                     }
                 }
+            }
+
+            // Close any remaining open directories
+            while !directory_stack.is_empty() {
+                directory_stack.pop();
+                events.push(SlashCommandEvent::EndSection { metadata: None });
             }
         }
         Ok(stream::iter(events).boxed())
@@ -438,6 +494,8 @@ fn buffer_to_output(buffer: &BufferSnapshot, path: Option<&Path>) -> Result<Stri
     output.push('\n');
 
     output.push('\n');
+
+    // TODO: collect_buffer_diagnostics(output, buffer, false);
 
     Ok(output)
 }
