@@ -78,7 +78,7 @@ use std::{
     cmp::{self, max, Ordering},
     fmt::Debug,
     iter, mem,
-    ops::Range,
+    ops::{Range, RangeBounds},
     path::{Path, PathBuf},
     str::FromStr as _,
     sync::Arc,
@@ -1843,7 +1843,7 @@ impl Context {
                         let start = command_range.start.to_offset(buffer);
                         let end = command_range.end.to_offset(buffer);
                         buffer.edit([(start..end, "")], None, cx);
-                        command_range.end
+                        buffer.anchor_after(command_range.end)
                     })
                 })?;
                 let mut finished_sections: Vec<SlashCommandOutputSection<language::Anchor>> =
@@ -1869,15 +1869,17 @@ impl Context {
                             icon,
                             label,
                             metadata,
+                            ensure_newline,
                         } => {
                             this.read_with(&cx, |this, cx| {
                                 let buffer = this.buffer.read(cx);
+                                log::info!("Slash command output section start: {:?}", position);
                                 pending_section_stack.push(PendingSection {
                                     start: buffer.anchor_before(position),
                                     icon,
                                     label,
                                     metadata,
-                                })
+                                });
                             })?;
                         }
                         SlashCommandEvent::Content {
@@ -1903,14 +1905,11 @@ impl Context {
                         SlashCommandEvent::EndSection { metadata } => {
                             if let Some(pending_section) = pending_section_stack.pop() {
                                 this.update(&mut cx, |this, cx| {
-                                    this.buffer.update(cx, |buffer, _cx| {
+                                    this.buffer.update(cx, |buffer, cx| {
                                         let start = pending_section.start;
                                         let end = buffer.anchor_before(position);
 
-                                        log::info!(
-                                            "Slash command output section start: {:?}",
-                                            start
-                                        );
+                                        buffer.edit([(position..position, "\n")], None, cx);
                                         log::info!("Slash command output section end: {:?}", end);
 
                                         let slash_command_output_section =
@@ -1940,8 +1939,9 @@ impl Context {
                     let version = this.version.clone();
                     let (op, ev) = this.buffer.update(cx, |buffer, cx| {
                         let start = command_range.start;
-                        let end = buffer.anchor_before(position);
-                        let output_range = start..end;
+                        let output_range = start..position;
+
+                        finished_sections.sort_by(|a, b| a.range.cmp(&b.range, buffer));
 
                         // Remove the command range from the buffer
                         (

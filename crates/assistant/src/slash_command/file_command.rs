@@ -250,11 +250,13 @@ fn collect_files(
                 while !directory_stack.is_empty()
                     && !entry.path.starts_with(directory_stack.last().unwrap())
                 {
+                    log::info!("end dir");
                     directory_stack.pop();
                     events.push(SlashCommandEvent::EndSection { metadata: None });
                 }
 
                 if entry.is_dir() {
+                    log::info!("start dir");
                     let mut child_entries = snapshot.child_entries(&entry.path);
                     if let Some(child) = child_entries.next() {
                         if child_entries.next().is_none() && child.kind.is_dir() {
@@ -286,8 +288,13 @@ fn collect_files(
                     };
                     events.push(SlashCommandEvent::StartSection {
                         icon: IconName::Folder,
-                        label: dirname.into(),
+                        label: dirname.clone().into(),
                         metadata: None,
+                        ensure_newline: true,
+                    });
+                    events.push(SlashCommandEvent::Content {
+                        text: dirname,
+                        run_commands_in_text: false,
                     });
                     directory_stack.push(entry.path.clone());
                 } else if entry.is_file() {
@@ -310,6 +317,7 @@ fn collect_files(
                                 .to_string()
                                 .into(),
                             metadata: None,
+                            ensure_newline: true,
                         });
                         events.push(SlashCommandEvent::Content {
                             text: content.into(),
@@ -322,6 +330,7 @@ fn collect_files(
 
             // Close any remaining open directories
             while !directory_stack.is_empty() {
+                log::info!("end dir");
                 directory_stack.pop();
                 events.push(SlashCommandEvent::EndSection { metadata: None });
             }
@@ -491,8 +500,6 @@ fn buffer_to_output(buffer: &BufferSnapshot, path: Option<&Path>) -> Result<Stri
         output.push('\n');
     }
     output.push_str("```");
-    output.push('\n');
-
     output.push('\n');
 
     // TODO: collect_buffer_diagnostics(output, buffer, false);

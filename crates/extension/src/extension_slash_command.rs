@@ -144,6 +144,7 @@ impl SlashCommand for ExtensionSlashCommand {
                     icon: IconName::Code,
                     label: "Code Output".into(),
                     metadata: None,
+                    ensure_newline: true,
                 },
                 SlashCommandEvent::Content {
                     run_commands_in_text: false,

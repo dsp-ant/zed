@@ -108,13 +108,14 @@ pub enum SlashCommandEvent {
         icon: IconName,
         label: SharedString,
         metadata: Option<serde_json::Value>,
+        ensure_newline: bool,
     },
     Content {
         text: String,
         run_commands_in_text: bool,
     },
     Progress {
-        message: String,
+        message: SharedString,
         complete: f32,
     },
     EndSection {
