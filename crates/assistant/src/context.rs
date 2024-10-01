@@ -1923,8 +1923,6 @@ impl Context {
                                             .push(slash_command_output_section.clone());
                                         this.slash_command_output_sections
                                             .push(slash_command_output_section);
-                                        this.slash_command_output_sections
-                                            .sort_by(|a, b| a.range.cmp(&b.range, buffer));
                                     });
                                 })?;
                             }
@@ -1941,6 +1939,8 @@ impl Context {
                         let start = command_range.start;
                         let output_range = start..position;
 
+                        this.slash_command_output_sections
+                            .sort_by(|a, b| a.range.cmp(&b.range, buffer));
                         finished_sections.sort_by(|a, b| a.range.cmp(&b.range, buffer));
 
                         // Remove the command range from the buffer

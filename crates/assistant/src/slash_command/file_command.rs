@@ -1,4 +1,7 @@
-use super::{SlashCommand, SlashCommandEvent, SlashCommandOutputSection, SlashCommandResult};
+use super::{
+    buffer_to_output, SlashCommand, SlashCommandEvent, SlashCommandOutputSection,
+    SlashCommandResult,
+};
 // use super::diagnostics_command::collect_buffer_diagnostics;
 use anyhow::{anyhow, Context as _, Result};
 use assistant_slash_command::{AfterCompletion, ArgumentCompletion};
@@ -308,22 +311,9 @@ fn collect_files(
                     };
                     if let Some(buffer) = open_buffer_task.await.log_err() {
                         let snapshot = buffer.read_with(&cx, |buffer, _| buffer.snapshot())?;
-                        let content =
+                        let mut events_from_buffer =
                             buffer_to_output(&snapshot, Some(&path_including_worktree_name))?;
-                        events.push(SlashCommandEvent::StartSection {
-                            icon: IconName::File,
-                            label: path_including_worktree_name
-                                .to_string_lossy()
-                                .to_string()
-                                .into(),
-                            metadata: None,
-                            ensure_newline: true,
-                        });
-                        events.push(SlashCommandEvent::Content {
-                            text: content.into(),
-                            run_commands_in_text: false,
-                        });
-                        events.push(SlashCommandEvent::EndSection { metadata: None });
+                        events.append(&mut events_from_buffer);
                     }
                 }
             }
@@ -337,74 +327,6 @@ fn collect_files(
         }
         Ok(stream::iter(events).boxed())
     })
-}
-
-pub fn codeblock_fence_for_path(
-    path: Option<&Path>,
-    row_range: Option<RangeInclusive<u32>>,
-) -> String {
-    let mut text = String::new();
-    write!(text, "```").unwrap();
-
-    if let Some(path) = path {
-        if let Some(extension) = path.extension().and_then(|ext| ext.to_str()) {
-            write!(text, "{} ", extension).unwrap();
-        }
-
-        write!(text, "{}", path.display()).unwrap();
-    } else {
-        write!(text, "untitled").unwrap();
-    }
-
-    if let Some(row_range) = row_range {
-        write!(text, ":{}-{}", row_range.start() + 1, row_range.end() + 1).unwrap();
-    }
-
-    text.push('\n');
-    text
-}
-
-#[derive(Serialize, Deserialize)]
-pub struct FileCommandMetadata {
-    pub path: String,
-}
-
-pub fn build_entry_output_section(
-    range: Range<usize>,
-    path: Option<&Path>,
-    is_directory: bool,
-    line_range: Option<Range<u32>>,
-) -> SlashCommandOutputSection<usize> {
-    let mut label = if let Some(path) = path {
-        path.to_string_lossy().to_string()
-    } else {
-        "untitled".to_string()
-    };
-    if let Some(line_range) = line_range {
-        write!(label, ":{}-{}", line_range.start, line_range.end).unwrap();
-    }
-
-    let icon = if is_directory {
-        IconName::Folder
-    } else {
-        IconName::File
-    };
-
-    SlashCommandOutputSection {
-        range,
-        icon,
-        label: label.into(),
-        metadata: if is_directory {
-            None
-        } else {
-            path.and_then(|path| {
-                serde_json::to_value(FileCommandMetadata {
-                    path: path.to_string_lossy().to_string(),
-                })
-                .ok()
-            })
-        },
-    }
 }
 
 /// This contains a small fork of the util::paths::PathMatcher, that is stricter about the prefix
@@ -487,24 +409,6 @@ mod custom_path_matcher {
             }
         }
     }
-}
-
-fn buffer_to_output(buffer: &BufferSnapshot, path: Option<&Path>) -> Result<String> {
-    let mut output = String::new();
-
-    let mut content = buffer.text();
-    LineEnding::normalize(&mut content);
-    output.push_str(&codeblock_fence_for_path(path, None));
-    output.push_str(&content);
-    if !output.ends_with('\n') {
-        output.push('\n');
-    }
-    output.push_str("```");
-    output.push('\n');
-
-    // TODO: collect_buffer_diagnostics(output, buffer, false);
-
-    Ok(output)
 }
 
 #[cfg(test)]
