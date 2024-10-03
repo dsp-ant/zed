@@ -4,7 +4,7 @@ use crate::{
     prompt_library::open_prompt_library,
     prompts::PromptBuilder,
     slash_command::{
-        // default_command::DefaultSlashCommand,
+        default_command::DefaultSlashCommand,
         // docs_command::{DocsSlashCommand, DocsSlashCommandArgs},
         // file_command::{self, codeblock_fence_for_path},
         SlashCommandCompletionProvider,

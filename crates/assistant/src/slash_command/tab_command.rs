@@ -1,8 +1,6 @@
 use super::{buffer_to_output, SlashCommand};
 use anyhow::{Context, Result};
-use assistant_slash_command::{
-    ArgumentCompletion, SlashCommandEvent, SlashCommandOutputSection, SlashCommandResult,
-};
+use assistant_slash_command::{ArgumentCompletion, SlashCommandOutputSection, SlashCommandResult};
 use collections::{HashMap, HashSet};
 use editor::Editor;
 use futures::{future::join_all, stream, StreamExt};

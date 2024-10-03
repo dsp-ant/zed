@@ -31,7 +31,7 @@ use workspace::Workspace;
 
 // pub mod auto_command;
 pub mod context_server_command;
-// pub mod default_command;
+pub mod default_command;
 // pub mod delta_command;
 // pub mod diagnostics_command;
 // pub mod docs_command;

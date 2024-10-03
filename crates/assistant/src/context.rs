@@ -1,5 +1,5 @@
 // todo!()
-// - Remove Into<BoxStream> for SlashCommandOutput
+// - implement run_commands_in_text
 // - When slash command wants to insert a message, but it wants to insert it after a message that has the same Role and it emits a `StartMessage { merge_same_roles: bool (name TBD) }`, we should ignore it
 // - When a section ends, we should run the following code:
 //         //             this.slash_command_output_sections

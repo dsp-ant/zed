@@ -12,8 +12,6 @@ use language::{BufferSnapshot, CodeLabel, HighlightId, LineEnding, LspAdapterDel
 use project::{Entry, PathMatchCandidateSet, Project};
 use serde::{Deserialize, Serialize};
 use std::{
-    fmt::Write,
-    ops::{Range, RangeInclusive},
     path::{Path, PathBuf},
     sync::{atomic::AtomicBool, Arc},
 };
