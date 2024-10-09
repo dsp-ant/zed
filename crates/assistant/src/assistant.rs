@@ -44,6 +44,7 @@ use slash_command::{
     context_server_command,
     default_command,
     file_command,
+    project_command,
     prompt_command,
     search_command,
     symbols_command,
@@ -377,7 +378,7 @@ fn register_slash_commands(prompt_builder: Option<Arc<PromptBuilder>>, cx: &mut 
     // slash_command_registry.register_command(delta_command::DeltaSlashCommand, true);
     slash_command_registry.register_command(symbols_command::OutlineSlashCommand, true);
     slash_command_registry.register_command(tab_command::TabSlashCommand, true);
-    // slash_command_registry.register_command(project_command::ProjectSlashCommand, true);
+    slash_command_registry.register_command(project_command::ProjectSlashCommand, true);
     slash_command_registry.register_command(prompt_command::PromptSlashCommand, true);
     slash_command_registry.register_command(default_command::DefaultSlashCommand, false);
     slash_command_registry.register_command(terminal_command::TerminalSlashCommand, true);
@@ -428,11 +429,11 @@ fn update_slash_commands_from_settings(cx: &mut AppContext) {
     //     slash_command_registry.unregister_command(docs_command::DocsSlashCommand);
     // }
 
-    // if settings.project.enabled {
-    //     slash_command_registry.register_command(project_command::ProjectSlashCommand, true);
-    // } else {
-    //     slash_command_registry.unregister_command(project_command::ProjectSlashCommand);
-    // }
+    if settings.project.enabled {
+        slash_command_registry.register_command(project_command::ProjectSlashCommand, true);
+    } else {
+        slash_command_registry.unregister_command(project_command::ProjectSlashCommand);
+    }
 }
 
 fn register_tools(cx: &mut AppContext) {
