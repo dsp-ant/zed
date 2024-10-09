@@ -44,6 +44,7 @@ use slash_command::{
     context_server_command,
     default_command,
     file_command,
+    search_command,
     symbols_command,
     tab_command, // auto_command, context_server_command, Default_command, delta_command, diagnostics_command,
     // docs_command, fetch_command, file_command, now_command, project_command, prompt_command,
@@ -405,15 +406,15 @@ fn register_slash_commands(prompt_builder: Option<Arc<PromptBuilder>>, cx: &mut 
     // cx.observe_global::<SettingsStore>(update_slash_commands_from_settings)
     //     .detach();
 
-    // cx.observe_flag::<search_command::SearchSlashCommandFeatureFlag, _>({
-    //     let slash_command_registry = slash_command_registry.clone();
-    //     move |is_enabled, _cx| {
-    //         if is_enabled {
-    //             slash_command_registry.register_command(search_command::SearchSlashCommand, true);
-    //         }
-    //     }
-    // })
-    // .detach();
+    cx.observe_flag::<search_command::SearchSlashCommandFeatureFlag, _>({
+        let slash_command_registry = slash_command_registry.clone();
+        move |is_enabled, _cx| {
+            if is_enabled {
+                slash_command_registry.register_command(search_command::SearchSlashCommand, true);
+            }
+        }
+    })
+    .detach();
 }
 
 fn update_slash_commands_from_settings(cx: &mut AppContext) {
