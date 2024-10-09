@@ -44,6 +44,7 @@ use slash_command::{
     context_server_command,
     default_command,
     file_command,
+    now_command,
     project_command,
     prompt_command,
     search_command,
@@ -382,7 +383,7 @@ fn register_slash_commands(prompt_builder: Option<Arc<PromptBuilder>>, cx: &mut 
     slash_command_registry.register_command(prompt_command::PromptSlashCommand, true);
     slash_command_registry.register_command(default_command::DefaultSlashCommand, false);
     slash_command_registry.register_command(terminal_command::TerminalSlashCommand, true);
-    // slash_command_registry.register_command(now_command::NowSlashCommand, false);
+    slash_command_registry.register_command(now_command::NowSlashCommand, false);
     // slash_command_registry.register_command(diagnostics_command::DiagnosticsSlashCommand, true);
 
     // if let Some(prompt_builder) = prompt_builder {
