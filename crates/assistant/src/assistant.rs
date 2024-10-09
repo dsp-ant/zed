@@ -43,6 +43,7 @@ use settings::{update_settings_file, Settings, SettingsStore};
 use slash_command::{
     context_server_command,
     default_command,
+    fetch_command,
     file_command,
     now_command,
     project_command,
@@ -392,7 +393,7 @@ fn register_slash_commands(prompt_builder: Option<Arc<PromptBuilder>>, cx: &mut 
     //         true,
     //     );
     // }
-    // slash_command_registry.register_command(fetch_command::FetchSlashCommand, false);
+    slash_command_registry.register_command(fetch_command::FetchSlashCommand, false);
 
     // cx.observe_flag::<auto_command::AutoSlashCommandFeatureFlag, _>({
     //     let slash_command_registry = slash_command_registry.clone();
