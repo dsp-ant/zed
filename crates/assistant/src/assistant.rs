@@ -43,6 +43,7 @@ use settings::{update_settings_file, Settings, SettingsStore};
 use slash_command::{
     context_server_command,
     default_command,
+    // diagnostics_command,
     docs_command,
     fetch_command,
     file_command,
