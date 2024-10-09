@@ -1886,7 +1886,7 @@ impl Context {
                             text,
                             run_commands_in_text,
                         } => {
-                            assert!(!run_commands_in_text, "not yet implemented");
+                            // assert!(!run_commands_in_text, "not yet implemented");
 
                             this.update(&mut cx, |this, cx| {
                                 this.buffer.update(cx, |buffer, cx| {

@@ -1595,23 +1595,23 @@ impl ContextEditor {
     }
 
     fn insert_default_prompt(&mut self, cx: &mut ViewContext<Self>) {
-        // let command_name = DefaultSlashCommand.name();
-        // self.editor.update(cx, |editor, cx| {
-        //     editor.insert(&format!("/{command_name}\n\n"), cx)
-        // });
-        // let command = self.context.update(cx, |context, cx| {
-        //     context.reparse(cx);
-        //     context.pending_slash_commands()[0].clone()
-        // });
-        // self.run_command(
-        //     command.source_range,
-        //     &command.name,
-        //     &command.arguments,
-        //     false,
-        //     false,
-        //     self.workspace.clone(),
-        //     cx,
-        // );
+        let command_name = DefaultSlashCommand.name();
+        self.editor.update(cx, |editor, cx| {
+            editor.insert(&format!("/{command_name}\n\n"), cx)
+        });
+        let command = self.context.update(cx, |context, cx| {
+            context.reparse(cx);
+            context.pending_slash_commands()[0].clone()
+        });
+        self.run_command(
+            command.source_range,
+            &command.name,
+            &command.arguments,
+            false,
+            false,
+            self.workspace.clone(),
+            cx,
+        );
     }
 
     fn assist(&mut self, _: &Assist, cx: &mut ViewContext<Self>) {
