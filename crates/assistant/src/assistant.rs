@@ -43,6 +43,7 @@ use settings::{update_settings_file, Settings, SettingsStore};
 use slash_command::{
     context_server_command,
     default_command,
+    docs_command,
     fetch_command,
     file_command,
     now_command,
@@ -425,11 +426,11 @@ fn update_slash_commands_from_settings(cx: &mut AppContext) {
     let slash_command_registry = SlashCommandRegistry::global(cx);
     let settings = SlashCommandSettings::get_global(cx);
 
-    // if settings.docs.enabled {
-    //     slash_command_registry.register_command(docs_command::DocsSlashCommand, true);
-    // } else {
-    //     slash_command_registry.unregister_command(docs_command::DocsSlashCommand);
-    // }
+    if settings.docs.enabled {
+        slash_command_registry.register_command(docs_command::DocsSlashCommand, true);
+    } else {
+        slash_command_registry.unregister_command(docs_command::DocsSlashCommand);
+    }
 
     if settings.project.enabled {
         slash_command_registry.register_command(project_command::ProjectSlashCommand, true);
