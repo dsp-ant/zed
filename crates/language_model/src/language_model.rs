@@ -10,7 +10,9 @@ pub mod settings;
 use anyhow::Result;
 use client::{Client, UserStore};
 use futures::FutureExt;
-use futures::{future::BoxFuture, stream::BoxStream, StreamExt, TryStreamExt as _};
+use futures::{
+    future::BoxFuture, stream::BoxStream, stream::Peekable, StreamExt, TryStreamExt as _,
+};
 use gpui::{
     AnyElement, AnyView, AppContext, AsyncAppContext, Model, SharedString, Task, WindowContext,
 };
@@ -126,21 +128,23 @@ pub trait LanguageModel: Send + Sync {
         cx: &AsyncAppContext,
     ) -> BoxFuture<'static, Result<LanguageModelTextStream>> {
         let events = self.stream_completion(request, cx);
-        let mut message_id = None;
 
         async move {
-            let events = events.await?.peekable();
+            let mut peekable_events = events.await?.peekable();
+            let mut peekable_events = Box::pin(peekable_events);
 
-            let mut message_id = None;
-            if let Some(first_event) = events.get_ref().peek().await {
-                if let LanguageModelCompletionEvent::StartMessage { message_id: id } = first_event {
-                    message_id = Some(id);
-                    events.next().await;
-                }
-            }
+            let message_id = peekable_events
+                .as_mut()
+                .next_if(|event| {
+                    matches!(event, Ok(LanguageModelCompletionEvent::StartMessage { .. }))
+                })
+                .await
+                .and_then(|event| match event {
+                    Ok(LanguageModelCompletionEvent::StartMessage { message_id: id }) => Some(id),
+                    _ => None,
+                });
 
-            let stream = events
-                .await?
+            let stream = peekable_events
                 .filter_map(|result| async move {
                     match result {
                         Ok(LanguageModelCompletionEvent::StartMessage { .. }) => None,
