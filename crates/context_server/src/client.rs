@@ -22,7 +22,10 @@ use util::{ResultExt, TryFutureExt};
 
 use crate::{
     transport::{StdioTransport, Transport},
-    types::{CancelledParams, ClientNotification, Notification as _, notifications::Cancelled},
+    types::{
+        CancelledParams, ClientNotification, Notification as _, Request as _,
+        notifications::Cancelled,
+    },
 };
 
 const JSON_RPC_VERSION: &str = "2.0";
@@ -39,6 +42,58 @@ type ResponseHandler = Box<dyn Send + FnOnce(String)>;
 type NotificationHandler = Box<dyn Send + FnMut(Value, AsyncApp)>;
 type RequestHandler = Box<dyn Send + FnMut(RequestId, &RawValue, AsyncApp)>;
 
+/// JSON-RPC error code for "Method not found", per spec.
+const ERROR_CODE_METHOD_NOT_FOUND: i32 = -32601;
+/// JSON-RPC error code for "Invalid params", per spec.
+const ERROR_CODE_INVALID_PARAMS: i32 = -32602;
+/// JSON-RPC error code for "Internal error", per spec.
+const ERROR_CODE_INTERNAL_ERROR: i32 = -32603;
+
+fn send_ok_response<T: Serialize>(
+    outbound_tx: &channel::Sender<String>,
+    id: RequestId,
+    value: &T,
+) {
+    let payload = serde_json::json!({
+        "jsonrpc": JSON_RPC_VERSION,
+        "id": id,
+        "result": value,
+    });
+    match serde_json::to_string(&payload) {
+        Ok(payload) => {
+            if let Err(err) = outbound_tx.try_send(payload) {
+                log::warn!("Failed to send response on outbound channel: {err}");
+            }
+        }
+        Err(err) => {
+            log::error!("Failed to serialize response: {err}");
+        }
+    }
+}
+
+fn send_error_response(
+    outbound_tx: &channel::Sender<String>,
+    id: RequestId,
+    code: i32,
+    message: String,
+) {
+    let payload = serde_json::json!({
+        "jsonrpc": JSON_RPC_VERSION,
+        "id": id,
+        "error": { "code": code, "message": message },
+    });
+    match serde_json::to_string(&payload) {
+        Ok(payload) => {
+            if let Err(err) = outbound_tx.try_send(payload) {
+                log::warn!("Failed to send error response on outbound channel: {err}");
+            }
+        }
+        Err(err) => {
+            log::error!("Failed to serialize error response: {err}");
+        }
+    }
+}
+
 #[derive(Debug, Clone, Eq, PartialEq, Hash, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum RequestId {
@@ -53,6 +108,7 @@ pub(crate) struct Client {
     name: Arc<str>,
     subscription_set: Arc<Mutex<NotificationSubscriptionSet>>,
     response_handlers: Arc<Mutex<Option<HashMap<RequestId, ResponseHandler>>>>,
+    request_handlers: Arc<Mutex<HashMap<&'static str, RequestHandler>>>,
     #[allow(clippy::type_complexity)]
     #[allow(dead_code)]
     io_tasks: Mutex<Option<(Task<Option<()>>, Task<Option<()>>)>>,
@@ -210,12 +266,14 @@ impl Client {
             let response_handlers = response_handlers.clone();
             let request_handlers = request_handlers.clone();
             let transport = transport.clone();
+            let outbound_tx = outbound_tx.clone();
             async move |cx| {
                 Self::handle_input(
                     transport,
                     subscription_set,
                     request_handlers,
                     response_handlers,
+                    outbound_tx,
                     cx,
                 )
                 .log_err()
@@ -249,6 +307,7 @@ impl Client {
             server_id,
             subscription_set,
             response_handlers,
+            request_handlers,
             name: server_name,
             next_id: Default::default(),
             outbound_tx,
@@ -272,6 +331,7 @@ impl Client {
         subscription_set: Arc<Mutex<NotificationSubscriptionSet>>,
         request_handlers: Arc<Mutex<HashMap<&'static str, RequestHandler>>>,
         response_handlers: Arc<Mutex<Option<HashMap<RequestId, ResponseHandler>>>>,
+        outbound_tx: channel::Sender<String>,
         cx: &mut AsyncApp,
     ) -> anyhow::Result<()> {
         let mut receiver = transport.receive();
@@ -299,6 +359,22 @@ impl Client {
                         request.id,
                         request.params.unwrap_or(RawValue::NULL),
                         cx.clone(),
+                    );
+                } else {
+                    // Reply with JSON-RPC "Method not found" so the server
+                    // does not hang waiting on our response. Without this,
+                    // advertising a capability without installing its handler
+                    // would silently strand the server-initiated request.
+                    drop(request_handlers);
+                    log::warn!(
+                        "No request handler for {}; responding with method_not_found",
+                        request.method
+                    );
+                    send_error_response(
+                        &outbound_tx,
+                        request.id,
+                        ERROR_CODE_METHOD_NOT_FOUND,
+                        format!("Method not found: {}", request.method),
                     );
                 }
             } else if let Ok(response) = serde_json::from_str::<AnyResponse>(&message) {
@@ -477,6 +553,60 @@ impl Client {
 
     pub(crate) fn set_negotiated_protocol_version(&self, version: &'static str) {
         self.transport.set_negotiated_protocol_version(version);
+    }
+
+    /// Install a handler for server-initiated `elicitation/create` requests.
+    /// The handler produces a typed response (including the user's accept/
+    /// decline/cancel choice) or an error; errors are returned to the server
+    /// as a JSON-RPC internal error.
+    pub(crate) fn install_elicitation_handler(&self, handler: crate::ElicitationHandler) {
+        use crate::types::requests::ElicitationCreate;
+        let method = ElicitationCreate::METHOD;
+        let outbound_tx = self.outbound_tx.clone();
+        let server_id = self.server_id.clone();
+        let request_handler: RequestHandler =
+            Box::new(move |id, params, cx| {
+                let outbound_tx = outbound_tx.clone();
+                let handler = handler.clone();
+                let params: crate::types::ElicitationCreateParams =
+                    match serde_json::from_str(params.get()) {
+                        Ok(params) => params,
+                        Err(err) => {
+                            log::error!(
+                                "{} failed to parse elicitation/create params: {err}",
+                                server_id.0
+                            );
+                            send_error_response(
+                                &outbound_tx,
+                                id,
+                                ERROR_CODE_INVALID_PARAMS,
+                                format!("Invalid elicitation/create params: {err}"),
+                            );
+                            return;
+                        }
+                    };
+                let server_id = server_id.clone();
+                cx.spawn(async move |cx| {
+                    let result = handler(params, cx.clone()).await;
+                    match result {
+                        Ok(response) => send_ok_response(&outbound_tx, id, &response),
+                        Err(err) => {
+                            log::warn!(
+                                "{} elicitation handler failed: {err:#}",
+                                server_id.0
+                            );
+                            send_error_response(
+                                    &outbound_tx,
+                                    id,
+                                    ERROR_CODE_INTERNAL_ERROR,
+                                    format!("Elicitation handler failed: {err}"),
+                                );
+                            }
+                        }
+                    })
+                    .detach();
+            });
+        self.request_handlers.lock().insert(method, request_handler);
     }
 
     /// Sends a notification to the context server without expecting a response.

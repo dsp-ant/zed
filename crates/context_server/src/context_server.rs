@@ -42,7 +42,22 @@ pub struct ContextServer {
     client: RwLock<Option<Arc<crate::protocol::InitializedContextServerProtocol>>>,
     configuration: ContextServerTransport,
     request_timeout: Option<Duration>,
+    elicitation_handler: RwLock<Option<ElicitationHandler>>,
 }
+
+/// Handler invoked when a context server sends an `elicitation/create`
+/// request. The handler runs in the GPUI async context so it can show UI
+/// and await the user's response. It returns the full typed response
+/// (including the user's `accept`/`decline`/`cancel` action) or an error
+/// if the elicitation could not be completed.
+pub type ElicitationHandler = Arc<
+    dyn Send
+        + Sync
+        + Fn(
+            types::ElicitationCreateParams,
+            AsyncApp,
+        ) -> gpui::Task<Result<types::ElicitationCreateResponse>>,
+>;
 
 impl ContextServer {
     pub fn stdio(
@@ -58,6 +73,7 @@ impl ContextServer {
                 working_directory.map(|directory| directory.to_path_buf()),
             ),
             request_timeout: None,
+            elicitation_handler: RwLock::new(None),
         }
     }
 
@@ -95,6 +111,7 @@ impl ContextServer {
             client: RwLock::new(None),
             configuration: ContextServerTransport::Custom(transport),
             request_timeout,
+            elicitation_handler: RwLock::new(None),
         }
     }
 
@@ -110,8 +127,15 @@ impl ContextServer {
         self.initialize(self.new_client(cx)?).await
     }
 
+    /// Register a handler for server-initiated `elicitation/create` requests.
+    /// Must be called before `start()` so the handler is in place before the
+    /// first server traffic arrives.
+    pub fn set_elicitation_handler(&self, handler: ElicitationHandler) {
+        *self.elicitation_handler.write() = Some(handler);
+    }
+
     fn new_client(&self, cx: &AsyncApp) -> Result<Client> {
-        Ok(match &self.configuration {
+        let client = match &self.configuration {
             ContextServerTransport::Stdio(command, working_directory) => Client::stdio(
                 client::ContextServerId(self.id.0.clone()),
                 client::ModelContextServerBinary {
@@ -130,7 +154,11 @@ impl ContextServer {
                 self.request_timeout,
                 cx.clone(),
             )?,
-        })
+        };
+        if let Some(handler) = self.elicitation_handler.read().clone() {
+            client.install_elicitation_handler(handler);
+        }
+        Ok(client)
     }
 
     async fn initialize(&self, client: Client) -> Result<()> {

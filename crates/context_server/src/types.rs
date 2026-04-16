@@ -87,6 +87,12 @@ pub mod requests {
         ListResourceTemplatesResponse
     );
     request!("roots/list", ListRoots, (), ListRootsResponse);
+    request!(
+        "elicitation/create",
+        ElicitationCreate,
+        ElicitationCreateParams,
+        ElicitationCreateResponse
+    );
 }
 
 pub trait Request {
@@ -125,6 +131,11 @@ pub mod notifications {
     );
     notification!("notifications/tools/list_changed", ToolsListChanged, ());
     notification!("notifications/prompts/list_changed", PromptsListChanged, ());
+    notification!(
+        "notifications/elicitation/complete",
+        ElicitationComplete,
+        ElicitationCompleteParams
+    );
     notification!("notifications/roots/list_changed", RootsListChanged, ());
 }
 
@@ -466,7 +477,30 @@ pub struct PromptArgument {
 pub struct ClientCapabilities {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub experimental: Option<HashMap<String, serde_json::Value>>,
+    /// Advertises the client's ability to respond to `elicitation/create`
+    /// requests from the server. Added in the MCP 2025-11-25 revision.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub elicitation: Option<ElicitationClientCapability>,
 }
+
+/// Declares which elicitation modes the client understands. Both modes are
+/// optional; advertising either mode as `Some(EmptyCapability {})` tells the
+/// server it may use that mode. An entirely absent `elicitation` capability
+/// means the client cannot participate in elicitation at all.
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+pub struct ElicitationClientCapability {
+    /// The client can render a schema-driven form for primitive inputs.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub form: Option<EmptyCapability>,
+    /// The client can open a URL in the user's default browser and track
+    /// completion via `notifications/elicitation/complete`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub url: Option<EmptyCapability>,
+}
+
+/// Capability marker with no fields. Present means "supported".
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+pub struct EmptyCapability {}
 
 #[derive(Default, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -676,6 +710,71 @@ pub struct ProgressParams {
     pub total: Option<f64>,
     #[serde(rename = "_meta", skip_serializing_if = "Option::is_none")]
     pub meta: Option<HashMap<String, serde_json::Value>>,
+}
+
+/// Request mode for `elicitation/create`. Added in MCP 2025-11-25.
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum ElicitationMode {
+    Form,
+    Url,
+}
+
+/// Parameters for a server-initiated `elicitation/create` request.
+///
+/// In `Form` mode the server supplies a restricted JSON Schema and the client
+/// renders a form. In `Url` mode the server supplies a URL to open in the
+/// user's browser and an opaque elicitation id used to correlate the eventual
+/// `notifications/elicitation/complete`.
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ElicitationCreateParams {
+    /// Defaults to `Form` when absent so servers targeting older drafts still
+    /// interoperate.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mode: Option<ElicitationMode>,
+    pub message: String,
+    /// A restricted JSON Schema describing the requested form inputs. Present
+    /// in `Form` mode only.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub requested_schema: Option<serde_json::Value>,
+    /// The URL the client should open. Present in `Url` mode only.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub url: Option<String>,
+    /// Opaque identifier the server uses to correlate the URL elicitation with
+    /// its completion notification. Present in `Url` mode only.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub elicitation_id: Option<String>,
+}
+
+/// Action the user took on an elicitation request.
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum ElicitationAction {
+    Accept,
+    Decline,
+    Cancel,
+}
+
+/// Response to an `elicitation/create` request.
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ElicitationCreateResponse {
+    pub action: ElicitationAction,
+    /// Populated only when `action` is `Accept` in `Form` mode. Must conform
+    /// to the `requested_schema` from the request.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub content: Option<serde_json::Value>,
+}
+
+/// Parameters for `notifications/elicitation/complete` — sent by the server
+/// to tell the client that a pending URL elicitation is no longer needed
+/// (for example because the server-side flow timed out or the user completed
+/// it out-of-band).
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ElicitationCompleteParams {
+    pub elicitation_id: String,
 }
 
 pub enum CompletionTotal {
