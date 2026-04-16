@@ -96,9 +96,6 @@ pub struct HttpTransport {
     /// Negotiated MCP protocol version; once set, sent on every subsequent
     /// request as the `MCP-Protocol-Version` header (required from 2025-06-18).
     protocol_version: Arc<SyncMutex<Option<&'static str>>>,
-    /// Most recent SSE event id observed on the response stream; used to
-    /// resume via `Last-Event-ID` if reconnection is ever added.
-    last_event_id: Arc<SyncMutex<Option<String>>>,
     executor: BackgroundExecutor,
     response_tx: channel::Sender<String>,
     response_rx: channel::Receiver<String>,
@@ -137,7 +134,6 @@ impl HttpTransport {
             endpoint,
             session_id: Arc::new(SyncMutex::new(None)),
             protocol_version: Arc::new(SyncMutex::new(None)),
-            last_event_id: Arc::new(SyncMutex::new(None)),
             response_tx,
             response_rx,
             error_tx,
@@ -346,7 +342,6 @@ impl HttpTransport {
     async fn setup_sse_stream(&self, mut response: Response<AsyncBody>) -> Result<()> {
         let response_tx = self.response_tx.clone();
         let error_tx = self.error_tx.clone();
-        let last_event_id = self.last_event_id.clone();
 
         // Run the SSE reader on the GPUI background executor so it is tracked
         // by `run_until_parked()` in tests and inherits the transport's async
@@ -357,7 +352,6 @@ impl HttpTransport {
             let mut lines = futures::AsyncBufReadExt::lines(reader);
 
             let mut data_buffer = Vec::new();
-            let mut pending_event_id: Option<String> = None;
             let mut in_message = false;
 
             while let Some(line_result) = lines.next().await {
@@ -374,13 +368,9 @@ impl HttpTransport {
                                         log::error!("Failed to send SSE message: {}", e);
                                         break;
                                     }
-                                    if let Some(id) = pending_event_id.take() {
-                                        *last_event_id.lock() = Some(id);
-                                    }
                                 }
                                 data_buffer.clear();
                             }
-                            pending_event_id = None;
                             in_message = false;
                         } else if let Some(data) = line.strip_prefix("data: ") {
                             // Handle data lines
@@ -394,13 +384,13 @@ impl HttpTransport {
                                 data_buffer.push(data.to_string());
                                 in_message = true;
                             }
-                        } else if let Some(id) = line.strip_prefix("id:") {
-                            // Track the latest event id so the transport can
-                            // resume with `Last-Event-ID` after reconnects,
-                            // per the SSE spec + MCP Streamable HTTP guidance.
-                            pending_event_id = Some(id.trim().to_string());
-                        } else if line.starts_with("event:") || line.starts_with("retry:") {
-                            // Zed has no use for these fields today.
+                        } else if line.starts_with("event:")
+                            || line.starts_with("id:")
+                            || line.starts_with("retry:")
+                        {
+                            // Zed has no use for these fields today. Event id
+                            // tracking will return when a GET SSE listening
+                            // stream with Last-Event-ID resumption is added.
                             continue;
                         } else if in_message {
                             // Continuation of data
