@@ -1413,8 +1413,44 @@ async fn resolve_start_failure(
     configuration: Arc<ContextServerConfiguration>,
     cx: &AsyncApp,
 ) -> ContextServerState {
-    let www_authenticate = err.downcast_ref::<TransportError>().map(|e| match e {
-        TransportError::AuthRequired { www_authenticate } => www_authenticate.clone(),
+    let transport_error = err.downcast_ref::<TransportError>();
+    if let Some(TransportError::ForbiddenOrigin { body }) = transport_error {
+        log::warn!(
+            "{id} context server rejected the request Origin (HTTP 403). Body: {body}"
+        );
+        return ContextServerState::Error {
+            configuration,
+            server,
+            error: format!(
+                "Context server returned 403 Forbidden. The server rejected the \
+                 request's Origin. Update the server's allowed-origins configuration \
+                 and retry."
+            )
+            .into(),
+        };
+    }
+    if let Some(TransportError::InsufficientScope { www_authenticate }) = transport_error {
+        let scopes = www_authenticate
+            .scope
+            .as_ref()
+            .map(|s| s.join(", "))
+            .unwrap_or_else(|| "<unspecified>".to_string());
+        log::warn!(
+            "{id} context server returned 403 insufficient_scope. Requested scopes: {scopes}"
+        );
+        return ContextServerState::Error {
+            configuration,
+            server,
+            error: format!(
+                "Context server requires additional OAuth scopes ({scopes}). \
+                 Re-authorize the server to grant them."
+            )
+            .into(),
+        };
+    }
+    let www_authenticate = transport_error.and_then(|e| match e {
+        TransportError::AuthRequired { www_authenticate } => Some(www_authenticate.clone()),
+        TransportError::ForbiddenOrigin { .. } | TransportError::InsufficientScope { .. } => None,
     });
 
     if www_authenticate.is_some() && configuration.has_static_auth_header() {
