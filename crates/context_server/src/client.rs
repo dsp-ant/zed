@@ -278,6 +278,18 @@ impl Client {
 
         while let Some(message) = receiver.next().await {
             log::trace!("recv: {}", &message);
+            // JSON-RPC batched messages were removed from MCP in the
+            // 2025-06-18 revision. Reject arriving arrays explicitly rather
+            // than silently falling through to "Unhandled JSON" so that the
+            // failure is diagnosable.
+            if message.trim_start().starts_with('[') {
+                log::error!(
+                    "Rejecting JSON-RPC batch from context server; batching is \
+                     not supported in MCP >= 2025-06-18: {}",
+                    message
+                );
+                continue;
+            }
             if let Ok(request) = serde_json::from_str::<AnyRequest>(&message) {
                 let mut request_handlers = request_handlers.lock();
                 if let Some(handler) = request_handlers.get_mut(request.method) {
