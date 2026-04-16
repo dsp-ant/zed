@@ -5,8 +5,18 @@ use url::Url;
 
 use crate::client::RequestId;
 
-pub const LATEST_PROTOCOL_VERSION: &str = "2025-03-26";
+pub const LATEST_PROTOCOL_VERSION: &str = "2025-11-25";
+pub const VERSION_2025_11_25: &str = "2025-11-25";
+pub const VERSION_2025_06_18: &str = "2025-06-18";
+pub const VERSION_2025_03_26: &str = "2025-03-26";
 pub const VERSION_2024_11_05: &str = "2024-11-05";
+
+pub const SUPPORTED_PROTOCOL_VERSIONS: &[&str] = &[
+    VERSION_2025_11_25,
+    VERSION_2025_06_18,
+    VERSION_2025_03_26,
+    VERSION_2024_11_05,
+];
 
 pub mod requests {
     use super::*;

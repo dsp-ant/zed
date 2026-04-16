@@ -14,4 +14,10 @@ pub trait Transport: Send + Sync {
     async fn send(&self, message: String) -> Result<()>;
     fn receive(&self) -> Pin<Box<dyn Stream<Item = String> + Send>>;
     fn receive_err(&self) -> Pin<Box<dyn Stream<Item = String> + Send>>;
+
+    /// Called once after the `initialize` handshake completes. Transports that
+    /// need to advertise the negotiated MCP protocol version on subsequent
+    /// messages (e.g. HTTP via the `MCP-Protocol-Version` header) override
+    /// this; the default is a no-op.
+    fn set_negotiated_protocol_version(&self, _version: &'static str) {}
 }

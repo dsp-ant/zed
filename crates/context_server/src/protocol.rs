@@ -24,13 +24,6 @@ impl ModelContextProtocol {
         Self { inner }
     }
 
-    fn supported_protocols() -> Vec<types::ProtocolVersion> {
-        vec![
-            types::ProtocolVersion(types::LATEST_PROTOCOL_VERSION.to_string()),
-            types::ProtocolVersion(types::VERSION_2024_11_05.to_string()),
-        ]
-    }
-
     pub async fn initialize(
         self,
         client_info: types::Implementation,
@@ -47,17 +40,29 @@ impl ModelContextProtocol {
             .request(types::requests::Initialize::METHOD, params)
             .await?;
 
-        anyhow::ensure!(
-            Self::supported_protocols().contains(&response.protocol_version),
-            "Unsupported protocol version: {:?}",
-            response.protocol_version
-        );
+        let negotiated_version = types::SUPPORTED_PROTOCOL_VERSIONS
+            .iter()
+            .find(|supported| **supported == response.protocol_version.0.as_str())
+            .copied()
+            .ok_or_else(|| {
+                anyhow::anyhow!(
+                    "Unsupported protocol version: {:?}",
+                    response.protocol_version
+                )
+            })?;
 
-        log::trace!("mcp server info {:?}", response.server_info);
+        self.inner.set_negotiated_protocol_version(negotiated_version);
+
+        log::trace!(
+            "mcp server info {:?} (negotiated protocol {})",
+            response.server_info,
+            negotiated_version
+        );
 
         let initialized_protocol = InitializedContextServerProtocol {
             inner: self.inner,
             initialize: response,
+            negotiated_protocol_version: negotiated_version,
         };
 
         initialized_protocol.notify::<types::notifications::Initialized>(())?;
@@ -69,6 +74,7 @@ impl ModelContextProtocol {
 pub struct InitializedContextServerProtocol {
     inner: Client,
     pub initialize: types::InitializeResponse,
+    negotiated_protocol_version: &'static str,
 }
 
 #[derive(Debug, PartialEq, Clone, Copy)]
@@ -81,6 +87,10 @@ pub enum ServerCapability {
 }
 
 impl InitializedContextServerProtocol {
+    pub fn negotiated_protocol_version(&self) -> &'static str {
+        self.negotiated_protocol_version
+    }
+
     /// Check if the server supports a specific capability
     pub fn capable(&self, capability: ServerCapability) -> bool {
         match capability {

@@ -461,6 +461,10 @@ impl Client {
         }
     }
 
+    pub(crate) fn set_negotiated_protocol_version(&self, version: &'static str) {
+        self.transport.set_negotiated_protocol_version(version);
+    }
+
     /// Sends a notification to the context server without expecting a response.
     /// This function serializes the notification and sends it through the outbound channel.
     pub fn notify(&self, method: &str, params: impl Serialize) -> Result<()> {

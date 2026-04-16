@@ -34,6 +34,7 @@ impl std::error::Error for TransportError {}
 
 // Constants from MCP spec
 const HEADER_SESSION_ID: &str = "Mcp-Session-Id";
+const HEADER_PROTOCOL_VERSION: &str = "MCP-Protocol-Version";
 const EVENT_STREAM_MIME_TYPE: &str = "text/event-stream";
 const JSON_MIME_TYPE: &str = "application/json";
 
@@ -42,6 +43,9 @@ pub struct HttpTransport {
     http_client: Arc<dyn HttpClient>,
     endpoint: String,
     session_id: Arc<SyncMutex<Option<String>>>,
+    /// Negotiated MCP protocol version; once set, sent on every subsequent
+    /// request as the `MCP-Protocol-Version` header (required from 2025-06-18).
+    protocol_version: Arc<SyncMutex<Option<&'static str>>>,
     executor: BackgroundExecutor,
     response_tx: channel::Sender<String>,
     response_rx: channel::Receiver<String>,
@@ -79,6 +83,7 @@ impl HttpTransport {
             executor,
             endpoint,
             session_id: Arc::new(SyncMutex::new(None)),
+            protocol_version: Arc::new(SyncMutex::new(None)),
             response_tx,
             response_rx,
             error_tx,
@@ -113,6 +118,12 @@ impl HttpTransport {
         // Add session ID if we have one (except for initialize).
         if let Some(ref session_id) = *self.session_id.lock() {
             request_builder = request_builder.header(HEADER_SESSION_ID, session_id.as_str());
+        }
+
+        // Advertise the negotiated MCP protocol version once `initialize` has
+        // completed. Required by the 2025-06-18 revision and later.
+        if let Some(version) = *self.protocol_version.lock() {
+            request_builder = request_builder.header(HEADER_PROTOCOL_VERSION, version);
         }
 
         Ok(request_builder.body(AsyncBody::from(message.to_vec()))?)
@@ -315,6 +326,10 @@ impl Transport for HttpTransport {
     fn receive_err(&self) -> Pin<Box<dyn Stream<Item = String> + Send>> {
         Box::pin(self.error_rx.clone())
     }
+
+    fn set_negotiated_protocol_version(&self, version: &'static str) {
+        *self.protocol_version.lock() = Some(version);
+    }
 }
 
 impl Drop for HttpTransport {
@@ -323,6 +338,7 @@ impl Drop for HttpTransport {
         let http_client = self.http_client.clone();
         let endpoint = self.endpoint.clone();
         let session_id = self.session_id.lock().clone();
+        let protocol_version = *self.protocol_version.lock();
         let headers = self.headers.clone();
         let access_token = self.token_provider.as_ref().and_then(|p| p.access_token());
 
@@ -333,6 +349,10 @@ impl Drop for HttpTransport {
                         .method(Method::DELETE)
                         .uri(&endpoint)
                         .header(HEADER_SESSION_ID, &session_id);
+
+                    if let Some(version) = protocol_version {
+                        request_builder = request_builder.header(HEADER_PROTOCOL_VERSION, version);
+                    }
 
                     // Add static authentication headers.
                     for (key, value) in headers {
