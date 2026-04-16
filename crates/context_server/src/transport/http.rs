@@ -18,6 +18,12 @@ pub enum TransportError {
     /// The server returned 401 and token refresh either wasn't possible or
     /// failed. The caller should initiate the OAuth authorization flow.
     AuthRequired { www_authenticate: WwwAuthenticate },
+    /// The server returned 403. In the MCP 2025-11-25 revision this
+    /// unambiguously means the request's `Origin` was rejected (the spec
+    /// mandates that servers reject invalid origins with 403). Surface it
+    /// as a distinct variant so callers can explain the failure to the
+    /// user instead of reporting a generic transport error.
+    ForbiddenOrigin { body: String },
 }
 
 impl std::fmt::Display for TransportError {
@@ -25,6 +31,16 @@ impl std::fmt::Display for TransportError {
         match self {
             TransportError::AuthRequired { .. } => {
                 write!(f, "OAuth authorization required")
+            }
+            TransportError::ForbiddenOrigin { body } => {
+                if body.is_empty() {
+                    write!(f, "Context server rejected the request Origin (HTTP 403)")
+                } else {
+                    write!(
+                        f,
+                        "Context server rejected the request Origin (HTTP 403): {body}"
+                    )
+                }
             }
         }
     }
@@ -46,6 +62,9 @@ pub struct HttpTransport {
     /// Negotiated MCP protocol version; once set, sent on every subsequent
     /// request as the `MCP-Protocol-Version` header (required from 2025-06-18).
     protocol_version: Arc<SyncMutex<Option<&'static str>>>,
+    /// Most recent SSE event id observed on the response stream; used to
+    /// resume via `Last-Event-ID` if reconnection is ever added.
+    last_event_id: Arc<SyncMutex<Option<String>>>,
     executor: BackgroundExecutor,
     response_tx: channel::Sender<String>,
     response_rx: channel::Receiver<String>,
@@ -84,6 +103,7 @@ impl HttpTransport {
             endpoint,
             session_id: Arc::new(SyncMutex::new(None)),
             protocol_version: Arc::new(SyncMutex::new(None)),
+            last_event_id: Arc::new(SyncMutex::new(None)),
             response_tx,
             response_rx,
             error_tx,
@@ -232,6 +252,12 @@ impl HttpTransport {
                 // Accepted - notification acknowledged, no response needed
                 log::debug!("Notification accepted");
             }
+            status if status.as_u16() == 403 => {
+                let mut error_body = String::new();
+                futures::AsyncReadExt::read_to_string(response.body_mut(), &mut error_body).await?;
+
+                return Err(TransportError::ForbiddenOrigin { body: error_body }.into());
+            }
             _ => {
                 let mut error_body = String::new();
                 futures::AsyncReadExt::read_to_string(response.body_mut(), &mut error_body).await?;
@@ -250,6 +276,7 @@ impl HttpTransport {
     async fn setup_sse_stream(&self, mut response: Response<AsyncBody>) -> Result<()> {
         let response_tx = self.response_tx.clone();
         let error_tx = self.error_tx.clone();
+        let last_event_id = self.last_event_id.clone();
 
         // Spawn a task to handle the SSE stream
         smol::spawn(async move {
@@ -257,6 +284,7 @@ impl HttpTransport {
             let mut lines = futures::AsyncBufReadExt::lines(reader);
 
             let mut data_buffer = Vec::new();
+            let mut pending_event_id: Option<String> = None;
             let mut in_message = false;
 
             while let Some(line_result) = lines.next().await {
@@ -273,9 +301,13 @@ impl HttpTransport {
                                         log::error!("Failed to send SSE message: {}", e);
                                         break;
                                     }
+                                    if let Some(id) = pending_event_id.take() {
+                                        *last_event_id.lock() = Some(id);
+                                    }
                                 }
                                 data_buffer.clear();
                             }
+                            pending_event_id = None;
                             in_message = false;
                         } else if let Some(data) = line.strip_prefix("data: ") {
                             // Handle data lines
@@ -289,11 +321,13 @@ impl HttpTransport {
                                 data_buffer.push(data.to_string());
                                 in_message = true;
                             }
-                        } else if line.starts_with("event:")
-                            || line.starts_with("id:")
-                            || line.starts_with("retry:")
-                        {
-                            // Ignore other SSE fields
+                        } else if let Some(id) = line.strip_prefix("id:") {
+                            // Track the latest event id so the transport can
+                            // resume with `Last-Event-ID` after reconnects,
+                            // per the SSE spec + MCP Streamable HTTP guidance.
+                            pending_event_id = Some(id.trim().to_string());
+                        } else if line.starts_with("event:") || line.starts_with("retry:") {
+                            // Zed has no use for these fields today.
                             continue;
                         } else if in_message {
                             // Continuation of data
@@ -301,7 +335,14 @@ impl HttpTransport {
                         }
                     }
                     Err(e) => {
-                        let _ = error_tx.send(format!("SSE stream error: {}", e)).await;
+                        if let Err(send_err) =
+                            error_tx.send(format!("SSE stream error: {}", e)).await
+                        {
+                            log::error!(
+                                "Failed to forward SSE error to transport error channel: {}",
+                                send_err
+                            );
+                        }
                         break;
                     }
                 }
@@ -699,6 +740,7 @@ mod tests {
                     Some(vec!["read".to_string(), "write".to_string()]),
                 );
             }
+            other => panic!("unexpected transport error: {other:?}"),
         }
         assert_eq!(provider.refresh_count(), 1);
     }
@@ -736,6 +778,7 @@ mod tests {
                 assert!(www_authenticate.resource_metadata.is_none());
                 assert!(www_authenticate.scope.is_none());
             }
+            other => panic!("unexpected transport error: {other:?}"),
         }
     }
 
