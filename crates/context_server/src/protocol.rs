@@ -37,11 +37,7 @@ impl ModelContextProtocol {
     ) -> Result<InitializedContextServerProtocol> {
         let params = types::InitializeParams {
             protocol_version: types::ProtocolVersion(types::LATEST_PROTOCOL_VERSION.to_string()),
-            capabilities: types::ClientCapabilities {
-                experimental: None,
-                sampling: None,
-                roots: None,
-            },
+            capabilities: types::ClientCapabilities { experimental: None },
             meta: None,
             client_info,
         };

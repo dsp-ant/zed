@@ -442,10 +442,6 @@ pub struct PromptArgument {
 pub struct ClientCapabilities {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub experimental: Option<HashMap<String, serde_json::Value>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub sampling: Option<serde_json::Value>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub roots: Option<RootsCapabilities>,
 }
 
 #[derive(Default, Debug, Serialize, Deserialize)]
@@ -484,13 +480,6 @@ pub struct ResourcesCapabilities {
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ToolsCapabilities {
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub list_changed: Option<bool>,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct RootsCapabilities {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub list_changed: Option<bool>,
 }
