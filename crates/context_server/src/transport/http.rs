@@ -18,12 +18,17 @@ pub enum TransportError {
     /// The server returned 401 and token refresh either wasn't possible or
     /// failed. The caller should initiate the OAuth authorization flow.
     AuthRequired { www_authenticate: WwwAuthenticate },
-    /// The server returned 403. In the MCP 2025-11-25 revision this
-    /// unambiguously means the request's `Origin` was rejected (the spec
-    /// mandates that servers reject invalid origins with 403). Surface it
-    /// as a distinct variant so callers can explain the failure to the
-    /// user instead of reporting a generic transport error.
+    /// The server returned 403. Under the MCP 2025-11-25 revision 403 is
+    /// reserved for Origin rejection by the server. Callers should explain
+    /// this specifically to the user rather than report a generic transport
+    /// error, since the usual fix is to adjust the server's allowed-origin
+    /// configuration rather than to re-authenticate.
     ForbiddenOrigin { body: String },
+    /// The server returned 403 with a Bearer `insufficient_scope` challenge.
+    /// Callers should initiate an OAuth re-authorization round requesting the
+    /// scopes listed on the challenge (in addition to scopes already held)
+    /// and retry the original request once the upgraded token lands.
+    InsufficientScope { www_authenticate: WwwAuthenticate },
 }
 
 impl std::fmt::Display for TransportError {
@@ -42,6 +47,21 @@ impl std::fmt::Display for TransportError {
                     )
                 }
             }
+            TransportError::InsufficientScope { www_authenticate } => {
+                let scopes = www_authenticate
+                    .scope
+                    .as_ref()
+                    .map(|s| s.join(", "))
+                    .unwrap_or_default();
+                if scopes.is_empty() {
+                    write!(f, "OAuth authorization upgrade required (insufficient_scope)")
+                } else {
+                    write!(
+                        f,
+                        "OAuth authorization upgrade required (insufficient_scope, need: {scopes})"
+                    )
+                }
+            }
         }
     }
 }
@@ -53,6 +73,20 @@ const HEADER_SESSION_ID: &str = "Mcp-Session-Id";
 const HEADER_PROTOCOL_VERSION: &str = "MCP-Protocol-Version";
 const EVENT_STREAM_MIME_TYPE: &str = "text/event-stream";
 const JSON_MIME_TYPE: &str = "application/json";
+
+/// Best-effort check whether a serialized JSON-RPC message carries a specific
+/// `method`. Used to avoid attaching `MCP-Protocol-Version` to the
+/// `initialize` handshake itself, where the negotiated version is not yet
+/// authoritative.
+fn matches_method(message: &[u8], method: &str) -> bool {
+    let Ok(text) = std::str::from_utf8(message) else {
+        return false;
+    };
+    // The serializer always emits compact key-value pairs; a crude contains()
+    // is sufficient and much cheaper than parsing the JSON just for this.
+    let needle = format!("\"method\":\"{}\"", method);
+    text.contains(&needle)
+}
 
 /// HTTP Transport with session management and SSE support
 pub struct HttpTransport {
@@ -141,9 +175,16 @@ impl HttpTransport {
         }
 
         // Advertise the negotiated MCP protocol version once `initialize` has
-        // completed. Required by the 2025-06-18 revision and later.
-        if let Some(version) = *self.protocol_version.lock() {
-            request_builder = request_builder.header(HEADER_PROTOCOL_VERSION, version);
+        // completed. Required by the 2025-06-18 revision and later. The
+        // `initialize` request itself must not carry this header even on a
+        // re-initialization of the same transport, since the negotiated
+        // version from the previous handshake is no longer authoritative.
+        let is_initialize_message =
+            matches_method(message, "initialize") || matches_method(message, "notifications/initialized");
+        if !is_initialize_message {
+            if let Some(version) = *self.protocol_version.lock() {
+                request_builder = request_builder.header(HEADER_PROTOCOL_VERSION, version);
+            }
         }
 
         Ok(request_builder.body(AsyncBody::from(message.to_vec()))?)
@@ -156,10 +197,14 @@ impl HttpTransport {
 
         // If we currently have no access token, try refreshing before sending
         // the request so restored but expired sessions do not need an initial
-        // 401 round-trip before they can recover.
+        // 401 round-trip before they can recover. Refresh failures are best-
+        // effort warm-up and should not block the send; the 401 retry path
+        // will still catch a real authorization problem.
         if let Some(ref provider) = self.token_provider {
             if provider.access_token().is_none() {
-                provider.try_refresh().await.unwrap_or(false);
+                if let Err(refresh_err) = provider.try_refresh().await {
+                    log::debug!("pre-send token refresh failed (non-fatal): {refresh_err:?}");
+                }
             }
         }
 
@@ -253,8 +298,33 @@ impl HttpTransport {
                 log::debug!("Notification accepted");
             }
             status if status.as_u16() == 403 => {
+                // 403 can legitimately come from two different places under
+                // the 2025-11-25 revision: an Origin-rejection by the server,
+                // or an OAuth `insufficient_scope` Bearer challenge. Inspect
+                // `WWW-Authenticate` to tell them apart so callers can react
+                // appropriately (step-up scope vs give up).
+                let www_auth_header = response
+                    .headers()
+                    .get("www-authenticate")
+                    .and_then(|v| v.to_str().ok())
+                    .map(|s| s.to_string());
+
                 let mut error_body = String::new();
                 futures::AsyncReadExt::read_to_string(response.body_mut(), &mut error_body).await?;
+
+                if let Some(header) = www_auth_header.as_deref() {
+                    if let Ok(www_authenticate) = oauth::parse_www_authenticate(header) {
+                        if matches!(
+                            www_authenticate.error,
+                            Some(oauth::BearerError::InsufficientScope)
+                        ) {
+                            return Err(TransportError::InsufficientScope {
+                                www_authenticate,
+                            }
+                            .into());
+                        }
+                    }
+                }
 
                 return Err(TransportError::ForbiddenOrigin { body: error_body }.into());
             }
@@ -278,8 +348,11 @@ impl HttpTransport {
         let error_tx = self.error_tx.clone();
         let last_event_id = self.last_event_id.clone();
 
-        // Spawn a task to handle the SSE stream
-        smol::spawn(async move {
+        // Run the SSE reader on the GPUI background executor so it is tracked
+        // by `run_until_parked()` in tests and inherits the transport's async
+        // context. Detached here because the stream lifetime is governed by
+        // the server closing the connection or the transport being dropped.
+        self.executor.spawn(async move {
             let reader = futures::io::BufReader::new(response.body_mut());
             let mut lines = futures::AsyncBufReadExt::lines(reader);
 
@@ -406,10 +479,20 @@ impl Drop for HttpTransport {
                             request_builder.header("Authorization", format!("Bearer {}", token));
                     }
 
-                    let request = request_builder.body(AsyncBody::empty());
+                    let request = match request_builder.body(AsyncBody::empty()) {
+                        Ok(request) => request,
+                        Err(err) => {
+                            log::warn!(
+                                "Failed to build session-termination DELETE: {err:?}"
+                            );
+                            return;
+                        }
+                    };
 
-                    if let Ok(request) = request {
-                        let _ = http_client.send(request).await;
+                    if let Err(err) = http_client.send(request).await {
+                        log::debug!(
+                            "Session-termination DELETE failed (non-fatal): {err:?}"
+                        );
                     }
                 })
                 .detach();

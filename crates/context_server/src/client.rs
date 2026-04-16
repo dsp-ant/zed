@@ -279,9 +279,11 @@ impl Client {
         while let Some(message) = receiver.next().await {
             log::trace!("recv: {}", &message);
             // JSON-RPC batched messages were removed from MCP in the
-            // 2025-06-18 revision. Reject arriving arrays explicitly rather
-            // than silently falling through to "Unhandled JSON" so that the
-            // failure is diagnosable.
+            // 2025-06-18 revision. A single JSON-RPC message is always an
+            // object, so a leading `[` (after whitespace) unambiguously
+            // signals a batch. Reject it explicitly rather than silently
+            // falling through to "Unhandled JSON" so the incompatibility is
+            // diagnosable from the logs.
             if message.trim_start().starts_with('[') {
                 log::error!(
                     "Rejecting JSON-RPC batch from context server; batching is \
