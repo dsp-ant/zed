@@ -139,6 +139,8 @@ impl ContextServer {
         let client_info = types::Implementation {
             name: "Zed".to_string(),
             version: env!("CARGO_PKG_VERSION").to_string(),
+            description: None,
+            icons: None,
         };
         let initialized_protocol = protocol.initialize(client_info).await?;
 

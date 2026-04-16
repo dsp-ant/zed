@@ -404,6 +404,12 @@ impl AnyAgentTool for ContextServerTool {
                     context_server::types::ToolResponseContent::Resource { .. } => {
                         log::warn!("Ignoring resource content from tool response");
                     }
+                    context_server::types::ToolResponseContent::ResourceLink { uri, name, .. } => {
+                        // Hydrating these via `resources/read` is a follow-up;
+                        // for now surface the link inline so the agent at
+                        // least has the URI in context.
+                        result.push_str(&format!("[resource: {} <{}>]", name, uri));
+                    }
                 }
             }
             Ok(AgentToolOutput {

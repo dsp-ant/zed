@@ -28,6 +28,8 @@ fn create_initialize_response(server_name: String) -> InitializeResponse {
         server_info: Implementation {
             name: server_name,
             version: "1.0.0".to_string(),
+            description: None,
+            icons: None,
         },
         capabilities: ServerCapabilities::default(),
         meta: None,

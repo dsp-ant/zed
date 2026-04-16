@@ -435,6 +435,20 @@ pub struct Prompt {
     pub description: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub arguments: Option<Vec<PromptArgument>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub icons: Option<Vec<Icon>>,
+}
+
+/// An icon reference shipped alongside tool, prompt, resource, or
+/// implementation metadata. Added in the MCP 2025-11-25 revision.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Icon {
+    pub src: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mime_type: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sizes: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -505,6 +519,8 @@ pub struct Tool {
     pub output_schema: Option<serde_json::Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub annotations: Option<ToolAnnotations>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub icons: Option<Vec<Icon>>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -532,6 +548,12 @@ pub struct ToolAnnotations {
 pub struct Implementation {
     pub name: String,
     pub version: String,
+    /// Added in MCP 2025-11-25: a short human-readable description shown in
+    /// clients that enumerate connected implementations.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub icons: Option<Vec<Icon>>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -543,6 +565,8 @@ pub struct Resource {
     pub description: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub mime_type: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub icons: Option<Vec<Icon>>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -580,6 +604,8 @@ pub struct ResourceTemplate {
     pub description: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub mime_type: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub icons: Option<Vec<Icon>>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -708,6 +734,17 @@ pub enum ToolResponseContent {
     Audio { data: String, mime_type: String },
     #[serde(rename = "resource")]
     Resource { resource: ResourceContents },
+    /// A reference to a resource by URI, without inlining its contents.
+    /// Added in the MCP 2025-06-18 revision (SEP-resource-link).
+    #[serde(rename = "resource_link", rename_all = "camelCase")]
+    ResourceLink {
+        uri: Url,
+        name: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        description: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        mime_type: Option<String>,
+    },
 }
 
 impl ToolResponseContent {

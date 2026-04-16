@@ -1460,6 +1460,7 @@ async fn test_mcp_tools(cx: &mut TestAppContext) {
             .unwrap(),
             output_schema: None,
             annotations: None,
+            icons: None,
         }],
         &context_server_store,
         cx,
@@ -1627,6 +1628,7 @@ async fn test_mcp_tool_result_displayed_when_server_disconnected(cx: &mut TestAp
             }),
             output_schema: None,
             annotations: None,
+            icons: None,
         }],
         &context_server_store,
         cx,
@@ -1819,6 +1821,7 @@ async fn test_mcp_tool_truncation(cx: &mut TestAppContext) {
                 .unwrap(),
                 output_schema: None,
                 annotations: None,
+                icons: None,
             },
             context_server::types::Tool {
                 name: "unique_tool_1".into(),
@@ -1826,6 +1829,7 @@ async fn test_mcp_tool_truncation(cx: &mut TestAppContext) {
                 input_schema: json!({"type": "object", "properties": {}}),
                 output_schema: None,
                 annotations: None,
+                icons: None,
             },
         ],
         &context_server_store,
@@ -1844,6 +1848,7 @@ async fn test_mcp_tool_truncation(cx: &mut TestAppContext) {
                 .unwrap(),
                 output_schema: None,
                 annotations: None,
+                icons: None,
             },
             context_server::types::Tool {
                 name: "unique_tool_2".into(),
@@ -1851,6 +1856,7 @@ async fn test_mcp_tool_truncation(cx: &mut TestAppContext) {
                 input_schema: json!({"type": "object", "properties": {}}),
                 output_schema: None,
                 annotations: None,
+                icons: None,
             },
             context_server::types::Tool {
                 name: "a".repeat(MAX_TOOL_NAME_LENGTH - 2),
@@ -1858,6 +1864,7 @@ async fn test_mcp_tool_truncation(cx: &mut TestAppContext) {
                 input_schema: json!({"type": "object", "properties": {}}),
                 output_schema: None,
                 annotations: None,
+                icons: None,
             },
             context_server::types::Tool {
                 name: "b".repeat(MAX_TOOL_NAME_LENGTH - 1),
@@ -1865,6 +1872,7 @@ async fn test_mcp_tool_truncation(cx: &mut TestAppContext) {
                 input_schema: json!({"type": "object", "properties": {}}),
                 output_schema: None,
                 annotations: None,
+                icons: None,
             },
         ],
         &context_server_store,
@@ -1879,6 +1887,7 @@ async fn test_mcp_tool_truncation(cx: &mut TestAppContext) {
                 input_schema: json!({"type": "object", "properties": {}}),
                 output_schema: None,
                 annotations: None,
+                icons: None,
             },
             context_server::types::Tool {
                 name: "b".repeat(MAX_TOOL_NAME_LENGTH - 1),
@@ -1886,6 +1895,7 @@ async fn test_mcp_tool_truncation(cx: &mut TestAppContext) {
                 input_schema: json!({"type": "object", "properties": {}}),
                 output_schema: None,
                 annotations: None,
+                icons: None,
             },
             context_server::types::Tool {
                 name: "c".repeat(MAX_TOOL_NAME_LENGTH + 1),
@@ -1893,6 +1903,7 @@ async fn test_mcp_tool_truncation(cx: &mut TestAppContext) {
                 input_schema: json!({"type": "object", "properties": {}}),
                 output_schema: None,
                 annotations: None,
+                icons: None,
             },
         ],
         &context_server_store,
@@ -1911,6 +1922,7 @@ async fn test_mcp_tool_truncation(cx: &mut TestAppContext) {
             .unwrap(),
             output_schema: None,
             annotations: None,
+            icons: None,
         }],
         &context_server_store,
         cx,
@@ -4232,6 +4244,8 @@ fn setup_context_server(
                 server_info: context_server::types::Implementation {
                     name: name.into(),
                     version: "1.0.0".to_string(),
+                    description: None,
+                    icons: None,
                 },
                 capabilities: context_server::types::ServerCapabilities {
                     tools: Some(context_server::types::ToolsCapabilities {
