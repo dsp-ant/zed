@@ -18,6 +18,52 @@ pub const SUPPORTED_PROTOCOL_VERSIONS: &[&str] = &[
     VERSION_2024_11_05,
 ];
 
+/// Returns true if `version` is equal to or newer than `min`. MCP protocol
+/// versions are ISO calendar dates, so lexicographic comparison is also
+/// chronological. Use this to gate emission of fields that were only
+/// introduced in a specific revision — for example `Tool.icons` (added in
+/// 2025-11-25) or `ToolResponseContent::ResourceLink` (added in 2025-06-18).
+pub fn protocol_version_at_least(version: &str, min: &str) -> bool {
+    version >= min
+}
+
+/// Return the [`ClientCapabilities`] that Zed should advertise for the given
+/// protocol version. Capabilities introduced after `version` are omitted so
+/// we don't surface a feature a server at that revision cannot reason about.
+pub fn client_capabilities_for_version(version: &str) -> ClientCapabilities {
+    let elicitation = if protocol_version_at_least(version, VERSION_2025_11_25) {
+        Some(ElicitationClientCapability {
+            form: Some(EmptyCapability {}),
+            url: Some(EmptyCapability {}),
+        })
+    } else {
+        None
+    };
+    ClientCapabilities {
+        experimental: None,
+        elicitation,
+    }
+}
+
+/// Build the `clientInfo` [`Implementation`] for the given protocol version,
+/// including only the optional metadata fields that were defined at that
+/// revision.
+pub fn client_info_for_version(
+    version: &str,
+    name: String,
+    version_string: String,
+    description: Option<String>,
+    icons: Option<Vec<Icon>>,
+) -> Implementation {
+    let at_least_2025_11_25 = protocol_version_at_least(version, VERSION_2025_11_25);
+    Implementation {
+        name,
+        version: version_string,
+        description: if at_least_2025_11_25 { description } else { None },
+        icons: if at_least_2025_11_25 { icons } else { None },
+    }
+}
+
 pub mod requests {
     use super::*;
 
